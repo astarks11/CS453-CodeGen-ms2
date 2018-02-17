@@ -67,6 +67,7 @@ void evaluateCondition(tnode * t);
 void conditionDistribute(tnode * t);
 void print_local_variables(char * currFun, symtabnodelist ** local_symtbl);
 void evaluateWhile(tnode * t);
+void evaluateFor(tnode * t);
 void codeGen_Bool(tnode * boolExpr, enum SyntaxNodeType type,addrCode * trueDest, addrCode * falseDest);
 addrCode * newInstr_Cond_Dest(enum threeAddrType type, char * dest);
 addrCode * newInstr_Cond(enum threeAddrType type,enum threeAddrType condType, symtabnode * op1, symtabnode * op2, char * trueDest, char * falseDest);
@@ -239,6 +240,7 @@ void traverseFunctionBody(tnode * t,enum threeAddrType type) {
 		case Return:
 			return;
 		case For:
+			evaluateFor(t);
 			return;
 		case While:
 			evaluateWhile(t);
@@ -269,25 +271,6 @@ void traverseFunctionBody(tnode * t,enum threeAddrType type) {
 
 
 
-
-
-
-
-
-
-void evaluateWhile(tnode * t) {
-	tnode * test = stree_Get_While_Test(t);
-	tnode * body = stree_Get_While_Body(t);
-
-	addrCode * endDest = newInstr_Cond_Dest(Dest,temp_create_label());
-	addrCode * loopDest = newInstr_Cond_Dest(Dest,temp_create_label());
-	appendToInstructionList(newInstr_Cond_Dest(Dest,loopDest->endDest));
-	codeGen_Bool(test,While,endDest,loopDest);
-	conditionDistribute(body);
-	appendToInstructionList(newInstr_Cond_Dest(JumpDest,loopDest->endDest));
-	appendToInstructionList(endDest);
-
-} // evaluateWhile
 
 
 
@@ -359,8 +342,6 @@ void evaluateCondition(tnode * t) {
 	appendToInstructionList(falseDest);
 	conditionDistribute(ifElse);
 	appendToInstructionList(endDest);
-
-
 } // evaluateCondition
 
 
@@ -597,10 +578,35 @@ addrCode * newInstr_Cond(enum threeAddrType type,enum threeAddrType condType, sy
 
 
 
+void evaluateWhile(tnode * t) {
+	tnode * test = stree_Get_While_Test(t);
+	tnode * body = stree_Get_While_Body(t);
 
+	addrCode * endDest = newInstr_Cond_Dest(Dest,temp_create_label());
+	addrCode * loopDest = newInstr_Cond_Dest(Dest,temp_create_label());
+	appendToInstructionList(newInstr_Cond_Dest(Dest,loopDest->endDest));
+	codeGen_Bool(test,While,endDest,loopDest);
+	conditionDistribute(body);
+	appendToInstructionList(newInstr_Cond_Dest(JumpDest,loopDest->endDest));
+	appendToInstructionList(endDest);
+} // evaluateWhile
 
+void evaluateFor(tnode * t) {
+	tnode * init = stree_Get_For_Init(t);
+	tnode * test = stree_Get_For_Test(t);
+	tnode * update = stree_Get_For_Update(t);
+	tnode * body = stree_Get_For_Body(t);
+	addrCode * endDest = newInstr_Cond_Dest(Dest,temp_create_label());
+	addrCode * loopDest = newInstr_Cond_Dest(Dest,temp_create_label());
 
-
+	tac_assignments(init);
+	appendToInstructionList(loopDest);
+	codeGen_Bool(test,While,endDest,loopDest);
+	conditionDistribute(body);
+	tac_assignments(update);
+	appendToInstructionList(newInstr_Cond_Dest(JumpDest,loopDest->endDest));
+	appendToInstructionList(endDest);	
+} // evaluateFor
 
 
 
