@@ -23,12 +23,19 @@ enum threeAddrType {
 	ArrayAddr,
 	ArrayAssg,
 	Dest,
+	Cond,
 	JumpDest,
 	LessThan,
+	LessThanEq,
+	GreaterThan,
+	GreaterThanEq,
+	NotEq,
+	Eq,
 };
 
 typedef struct addrCode {
 	enum threeAddrType type;
+	enum threeAddrType condType;
 	int flag; // 1 for const
 	symtabnodelist ** local_symtbl;
 	symtabnode * src1;
@@ -61,7 +68,7 @@ void conditionDistribute(tnode * t);
 void print_local_variables(char * currFun, symtabnodelist ** local_symtbl);
 addrCode * codeGen_Bool(tnode * boolExpr, addrCode * trueDest, addrCode * falseDest);
 addrCode * newInstr_Cond_Dest(enum threeAddrType type, char * dest);
-addrCode * newInstr_Cond(enum threeAddrType type, symtabnode * op1, symtabnode * op2, char * trueDest, char * falseDest);
+addrCode * newInstr_Cond(enum threeAddrType type,enum threeAddrType condType, symtabnode * op1, symtabnode * op2, char * trueDest, char * falseDest);
 addrCode * newInstr_Param_Array(enum threeAddrType type, symtabnode * t,symtabnode * subscript);
 addrCode * newInstr_Array_Addr(enum threeAddrType type, symtabnode * dest, symtabnode * src1,symtabnode * array);
 addrCode * newInstr_Array_Assg(enum threeAddrType type, symtabnode * dest, symtabnode * src1);
@@ -339,8 +346,41 @@ addrCode * codeGen_Bool(tnode * boolExpr, addrCode * trueDest, addrCode * falseD
 			printf("codeGen_Bool:Lt\n");
 			binop1 = tac_assignments_rhs(stree_Get_Binop_Op1(boolExpr));
 			binop2 = tac_assignments_rhs(stree_Get_Binop_Op2(boolExpr));
-			newCode = newInstr_Cond(LessThan,binop1,binop2,trueDest->endDest,falseDest->endDest);
+			newCode = newInstr_Cond(Cond,LessThan,binop1,binop2,trueDest->endDest,falseDest->endDest);
 			break;
+		case Leq:
+			printf("codeGen_Bool:Leq\n");
+			binop1 = tac_assignments_rhs(stree_Get_Binop_Op1(boolExpr));
+			binop2 = tac_assignments_rhs(stree_Get_Binop_Op2(boolExpr));
+			newCode = newInstr_Cond(Cond,LessThanEq,binop1,binop2,trueDest->endDest,falseDest->endDest);
+			break;
+		case Gt:
+			printf("codeGen_Bool:Gt\n");
+			binop1 = tac_assignments_rhs(stree_Get_Binop_Op1(boolExpr));
+			binop2 = tac_assignments_rhs(stree_Get_Binop_Op2(boolExpr));
+			newCode = newInstr_Cond(Cond,GreaterThan,binop1,binop2,trueDest->endDest,falseDest->endDest);
+			break;
+		case Geq:
+			printf("codeGen_Bool:Geq\n");
+			binop1 = tac_assignments_rhs(stree_Get_Binop_Op1(boolExpr));
+			binop2 = tac_assignments_rhs(stree_Get_Binop_Op2(boolExpr));
+			newCode = newInstr_Cond(Cond,GreaterThanEq,binop1,binop2,trueDest->endDest,falseDest->endDest);		
+		break;
+		case Equals:
+			printf("codeGen_Bool:Equals\n");
+			binop1 = tac_assignments_rhs(stree_Get_Binop_Op1(boolExpr));
+			binop2 = tac_assignments_rhs(stree_Get_Binop_Op2(boolExpr));
+			newCode = newInstr_Cond(Cond,Eq,binop1,binop2,trueDest->endDest,falseDest->endDest);		
+		break;		
+		case Neq:
+			printf("codeGen_Bool:Equals\n");
+			binop1 = tac_assignments_rhs(stree_Get_Binop_Op1(boolExpr));
+			binop2 = tac_assignments_rhs(stree_Get_Binop_Op2(boolExpr));
+			newCode = newInstr_Cond(Cond,NotEq,binop1,binop2,trueDest->endDest,falseDest->endDest);		
+		break;	
+		case LogicalAnd:
+			printf("condeGen_Bool:LogicalAnd\n");
+		break;
 		default:
 			break;
 	}
@@ -360,9 +400,10 @@ addrCode * newInstr_Cond_Dest(enum threeAddrType type, char * dest) {
 }
 
 
-addrCode * newInstr_Cond(enum threeAddrType type, symtabnode * op1, symtabnode * op2, char * trueDest, char * falseDest) {
+addrCode * newInstr_Cond(enum threeAddrType type,enum threeAddrType condType, symtabnode * op1, symtabnode * op2, char * trueDest, char * falseDest) {
 	struct addrCode * newCode = (addrCode*)malloc(sizeof(addrCode));
 	newCode->type = type;
+	newCode->condType = condType;
 	newCode->src1 = op1;
 	newCode->src2 = op2;
 	newCode->trueDest = trueDest;
@@ -1147,7 +1188,7 @@ while (code != NULL) {
 				printf("\tlw $t2, _%s_%s\n",currFun,sym_Get_Name(code->src1));
 				printf("\tsw $t2, 0($t1)\n");
 				break;
-			case LessThan:
+			case Cond:
 				if (sym_Get_Scope(code->src1) == 1)
 					printf("\tlw $t0, _%s_%s\n",currFun,sym_Get_Name(code->src1));
 				else
@@ -1156,7 +1197,19 @@ while (code != NULL) {
 					printf("\tlw $t1, _%s_%s\n",currFun,sym_Get_Name(code->src2));
 				else
 					printf("\tlw $t1, _%s\n",sym_Get_Name(code->src2));
-				printf("\tblt $t0, $t1, _%s\n",code->trueDest);
+				if (code->condType == LessThan)
+					printf("\tblt $t0, $t1, _%s\n",code->trueDest);
+				else if (code->condType == GreaterThan)
+					printf("\tbgt $t0, $t1, _%s\n",code->trueDest);
+				else if (code->condType == GreaterThanEq)
+					printf("\tbge $t0, $t1, _%s\n",code->trueDest);
+				else if (code->condType == LessThanEq)
+					printf("\tble $t0, $t1, _%s\n",code->trueDest);
+				else if (code->condType == Eq)
+					printf("\tbeq $t0, $t1, _%s\n",code->trueDest);
+				else if (code->condType == NotEq)
+					printf("\tbne $t0, $t1, _%s\n",code->trueDest);
+
 				break;
 			case Dest:
 				printf("\t_%s:\n",code->endDest);
