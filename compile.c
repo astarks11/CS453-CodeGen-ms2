@@ -66,7 +66,8 @@ void print_global_variables(symtabnodelist ** global_symtbl);
 void evaluateCondition(tnode * t);
 void conditionDistribute(tnode * t);
 void print_local_variables(char * currFun, symtabnodelist ** local_symtbl);
-addrCode * codeGen_Bool(tnode * boolExpr, addrCode * trueDest, addrCode * falseDest);
+void evaluateWhile(tnode * t);
+void codeGen_Bool(tnode * boolExpr, enum SyntaxNodeType type,addrCode * trueDest, addrCode * falseDest);
 addrCode * newInstr_Cond_Dest(enum threeAddrType type, char * dest);
 addrCode * newInstr_Cond(enum threeAddrType type,enum threeAddrType condType, symtabnode * op1, symtabnode * op2, char * trueDest, char * falseDest);
 addrCode * newInstr_Param_Array(enum threeAddrType type, symtabnode * t,symtabnode * subscript);
@@ -240,6 +241,7 @@ void traverseFunctionBody(tnode * t,enum threeAddrType type) {
 		case For:
 			return;
 		case While:
+			evaluateWhile(t);
 			return;
 		case If:
 			evaluateCondition(t);
@@ -255,6 +257,52 @@ void traverseFunctionBody(tnode * t,enum threeAddrType type) {
 			return;
 	}
 } // 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+void evaluateWhile(tnode * t) {
+	tnode * test = stree_Get_While_Test(t);
+	tnode * body = stree_Get_While_Body(t);
+
+	addrCode * endDest = newInstr_Cond_Dest(Dest,temp_create_label());
+	addrCode * loopDest = newInstr_Cond_Dest(Dest,temp_create_label());
+	appendToInstructionList(newInstr_Cond_Dest(Dest,loopDest->endDest));
+	codeGen_Bool(test,While,endDest,loopDest);
+	conditionDistribute(body);
+	appendToInstructionList(newInstr_Cond_Dest(JumpDest,loopDest->endDest));
+	appendToInstructionList(endDest);
+
+} // evaluateWhile
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -301,12 +349,9 @@ void evaluateCondition(tnode * t) {
 	tnode * ifElse = stree_Get_If_Else(t);
 	addrCode * trueDest = newInstr_Cond_Dest(Dest,temp_create_label());
 	addrCode * falseDest = newInstr_Cond_Dest(Dest,temp_create_label());
-	addrCode * testCode = codeGen_Bool(test,trueDest,falseDest);
 	addrCode * endDest = newInstr_Cond_Dest(Dest,temp_create_label());
 	// append test to instruction list
-	appendToInstructionList(testCode);
-	appendToInstructionList(newInstr_Cond_Dest(JumpDest,falseDest->endDest));
-	appendToInstructionList(trueDest);
+	codeGen_Bool(test,If,trueDest,falseDest);
 	// deal with if-then
 	printf("--ifThen--\n");
 	conditionDistribute(ifThen);
@@ -324,10 +369,21 @@ void conditionDistribute(tnode * t) {
 	switch (stree_Get_TreeNodeType(t)) {
 		case STnodeList:
 			while (t != NULL) {
-				tac_assignments(stree_Get_List_Head(t));
+				if (stree_Get_TreeNodeType(stree_Get_List_Head(t)) == Assg) {
+					tac_assignments(stree_Get_List_Head(t));
+				} 
+				if (stree_Get_TreeNodeType(stree_Get_List_Head(t)) == FunCall) {
+					// find/set arguments through recursion
+					funCallArguments(stree_Get_FunCall_Args(stree_Get_List_Head(t)));
+					// set 3addr code for function call
+					printf("Fun:%s\n",sym_Get_Name(stree_Get_FunCall_Fun(stree_Get_List_Head(t))));
+					appendToInstructionList(newInstrCall(Call,stree_Get_FunCall_Fun(stree_Get_List_Head(t))));
+				}
 				t = stree_Get_List_Rest(t);
+
 			}
 			break;
+
 		default:
 			printf("UNEXPECTED\n");
 			return;
@@ -337,54 +393,108 @@ void conditionDistribute(tnode * t) {
 
 
 
-addrCode * codeGen_Bool(tnode * boolExpr, addrCode * trueDest, addrCode * falseDest) {
+void codeGen_Bool(tnode * boolExpr,enum SyntaxNodeType type, addrCode * trueDest, addrCode * falseDest) {
 	addrCode * newCode;
 	symtabnode * binop1;
 	symtabnode * binop2;
+	//tnode * binop11;
+	//tnode * binop22;
+	//addrCode * newTrueDest = newInstr_Cond_Dest(Dest,temp_create_label());
 	switch (stree_Get_TreeNodeType(boolExpr)) {
 		case Lt:
 			printf("codeGen_Bool:Lt\n");
 			binop1 = tac_assignments_rhs(stree_Get_Binop_Op1(boolExpr));
 			binop2 = tac_assignments_rhs(stree_Get_Binop_Op2(boolExpr));
-			newCode = newInstr_Cond(Cond,LessThan,binop1,binop2,trueDest->endDest,falseDest->endDest);
+			if (type == If) {
+				newCode = newInstr_Cond(Cond,LessThan,binop1,binop2,trueDest->endDest,falseDest->endDest);
+				appendToInstructionList(newCode);
+				appendToInstructionList(newInstr_Cond_Dest(JumpDest,falseDest->endDest));
+				appendToInstructionList(trueDest);
+			} else if (type == While) {
+				newCode = newInstr_Cond(Cond,GreaterThanEq,binop1,binop2,trueDest->endDest,falseDest->endDest);
+				appendToInstructionList(newCode);
+			}
 			break;
 		case Leq:
 			printf("codeGen_Bool:Leq\n");
 			binop1 = tac_assignments_rhs(stree_Get_Binop_Op1(boolExpr));
 			binop2 = tac_assignments_rhs(stree_Get_Binop_Op2(boolExpr));
-			newCode = newInstr_Cond(Cond,LessThanEq,binop1,binop2,trueDest->endDest,falseDest->endDest);
+			if (type == If) {
+				newCode = newInstr_Cond(Cond,LessThanEq,binop1,binop2,trueDest->endDest,falseDest->endDest);
+				appendToInstructionList(newCode);
+				appendToInstructionList(newInstr_Cond_Dest(JumpDest,falseDest->endDest));
+				appendToInstructionList(trueDest);
+			} else if (type == While) {
+				newCode = newInstr_Cond(Cond,GreaterThan,binop1,binop2,trueDest->endDest,falseDest->endDest);
+				appendToInstructionList(newCode);
+			}			
 			break;
 		case Gt:
 			printf("codeGen_Bool:Gt\n");
 			binop1 = tac_assignments_rhs(stree_Get_Binop_Op1(boolExpr));
 			binop2 = tac_assignments_rhs(stree_Get_Binop_Op2(boolExpr));
-			newCode = newInstr_Cond(Cond,GreaterThan,binop1,binop2,trueDest->endDest,falseDest->endDest);
+			if (type == If) {
+				newCode = newInstr_Cond(Cond,GreaterThan,binop1,binop2,trueDest->endDest,falseDest->endDest);
+				appendToInstructionList(newCode);
+				appendToInstructionList(newInstr_Cond_Dest(JumpDest,falseDest->endDest));
+				appendToInstructionList(trueDest);
+			} else if (type == While) {
+				newCode = newInstr_Cond(Cond,LessThanEq,binop1,binop2,trueDest->endDest,falseDest->endDest);
+				appendToInstructionList(newCode);
+			}
 			break;
 		case Geq:
 			printf("codeGen_Bool:Geq\n");
 			binop1 = tac_assignments_rhs(stree_Get_Binop_Op1(boolExpr));
 			binop2 = tac_assignments_rhs(stree_Get_Binop_Op2(boolExpr));
 			newCode = newInstr_Cond(Cond,GreaterThanEq,binop1,binop2,trueDest->endDest,falseDest->endDest);		
+			appendToInstructionList(newCode);	
+			if (type == If) {
+				appendToInstructionList(newInstr_Cond_Dest(JumpDest,falseDest->endDest));
+				appendToInstructionList(trueDest);
+			}
 		break;
 		case Equals:
 			printf("codeGen_Bool:Equals\n");
 			binop1 = tac_assignments_rhs(stree_Get_Binop_Op1(boolExpr));
 			binop2 = tac_assignments_rhs(stree_Get_Binop_Op2(boolExpr));
-			newCode = newInstr_Cond(Cond,Eq,binop1,binop2,trueDest->endDest,falseDest->endDest);		
+			if (type == If) {
+				appendToInstructionList(newInstr_Cond_Dest(JumpDest,falseDest->endDest));
+				appendToInstructionList(trueDest);
+				newCode = newInstr_Cond(Cond,Eq,binop1,binop2,trueDest->endDest,falseDest->endDest);		
+				appendToInstructionList(newCode);
+			} else if (type == While) {
+				newCode = newInstr_Cond(Cond,NotEq,binop1,binop2,trueDest->endDest,falseDest->endDest);		
+				appendToInstructionList(newCode);
+			}
 		break;		
 		case Neq:
 			printf("codeGen_Bool:Equals\n");
 			binop1 = tac_assignments_rhs(stree_Get_Binop_Op1(boolExpr));
 			binop2 = tac_assignments_rhs(stree_Get_Binop_Op2(boolExpr));
-			newCode = newInstr_Cond(Cond,NotEq,binop1,binop2,trueDest->endDest,falseDest->endDest);		
-		break;	
-		case LogicalAnd:
-			printf("condeGen_Bool:LogicalAnd\n");
+			if (type == If) {
+				newCode = newInstr_Cond(Cond,NotEq,binop1,binop2,trueDest->endDest,falseDest->endDest);		
+				appendToInstructionList(newCode);
+				appendToInstructionList(newInstr_Cond_Dest(JumpDest,falseDest->endDest));
+				appendToInstructionList(trueDest);
+			} else if (type == While) {
+				newCode = newInstr_Cond(Cond,Eq,binop1,binop2,trueDest->endDest,falseDest->endDest);		
+				appendToInstructionList(newCode);
+			}
 		break;
+		case LogicalAnd:
+		/*	binop11 = stree_Get_Binop_Op1(boolExpr);
+			binop22 = stree_Get_Binop_Op2(boolExpr);
+			codeGen_Bool(binop11,trueDest,falseDest);
+			appendToInstructionList(trueDest);
+			codeGen_Bool(binop22,newTrueDest,falseDest);
+			appendToInstructionList(newInstr_Cond_Dest(JumpDest,falseDest->endDest));
+			appendToInstructionList(falseDest);*/
+			break;
 		default:
+			printf("NOT EXCPECTED\n");
 			break;
 	}
-	return newCode;
 } // codeGen_Bool
 
 
