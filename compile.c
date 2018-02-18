@@ -789,6 +789,10 @@ addrCode * newInstr_Array_Len(enum threeAddrType type, symtabnode * dest, symtab
 void funCallArguments(tnode * t) {
 	while (t != NULL) {
 		tnode * tmp = stree_Get_List_Head(t);
+		addrCode * newCode;
+		symtabnode * symtabptr;
+		symtabnode * derefLength;
+		symtabnode * addr;
 		switch(stree_Get_TreeNodeType(tmp)) {
 			// add node to list that will be traversed to create argument 
 			// assembly code out of it.
@@ -813,7 +817,17 @@ void funCallArguments(tnode * t) {
 			case ArraySubscript:
 				printf("param Array DOESNOT WORK:%s\n",sym_Get_Name(stree_Get_ArraySubscript_Array(tmp)));
 				//appendToInstructionList(newInstr_Param_Array(Param,stree_Get_ArraySubscript_Array(tmp),tac_assignments_rhs(stree_Get_ArraySubscript_Subscript(tmp))));
-
+				symtabptr = tac_assignments_rhs(stree_Get_ArraySubscript_Subscript(tmp));
+				// get deref length
+				derefLength = SymTab_Insert(global_local_symbtbl,temp_create_str(),1);
+				newCode = newInstr_Array_Len(ArrayLen,derefLength,symtabptr,stree_Get_ArraySubscript_Array(tmp));
+				appendToInstructionList(newCode);
+				// get addr loc
+				addr = SymTab_Insert(global_local_symbtbl,temp_create_str(),1);
+				sym_Set_Type(addr,t_Array);
+				newCode = newInstr_Array_Addr(ArrayAddr,addr,derefLength,stree_Get_ArraySubscript_Array(tmp));
+				appendToInstructionList(newCode);
+				appendToInstructionList(newInstr_Param_Var(Param,addr));
 				break;
 			default:
 				printf("ERROR: NO USE FOR FUNCTION ARGUMENT\n");
@@ -1131,8 +1145,8 @@ while (code != NULL) {
 						printf("\tla $sp, -4($sp)\n");
 						printf("\tsw $t0, 0($sp)\n");	
 					} else if (code->symType == t_Array) {
-						printf("needs work\n");
-						printf("\tlw $t0,_%s\n",sym_Get_Name(code->src1));
+						printf("\tlw $t0, _%s_%s\n",currFun,sym_Get_Name(code->src1));
+						printf("\tlw $t0, 0($t0)\n");						
 						printf("\tla $sp, -4($sp)\n");
 						printf("\tsw $t0, 0($sp)\n");
 
