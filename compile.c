@@ -364,7 +364,6 @@ void conditionDistribute(tnode * t) {
 
 			}
 			break;
-
 		default:
 			printf("UNEXPECTED\n");
 			return;
@@ -610,7 +609,6 @@ void evaluateFor(tnode * t) {
 
 
 
-
 void tac_assignments(tnode * t) {
 	// deal with rhs
 	symtabnode * rhsPtr = tac_assignments_rhs(stree_Get_Assg_Rhs(t));
@@ -625,6 +623,9 @@ symtabnode * tac_assignments_rhs(tnode * t) {
 	symtabnode * binop1;
 	symtabnode * binop2;
 	addrCode * newCode;
+	symtabnode * derefLength;
+	symtabnode * addr;
+	//symtabnode * arrayRes;
 	printf("...RHS...\n");
 	switch (stree_Get_TreeNodeType(t)) {
 		case Charcon:
@@ -683,7 +684,21 @@ symtabnode * tac_assignments_rhs(tnode * t) {
 			appendToInstructionList(newCode);
 			break;
 		case ArraySubscript:
-			printf("still needs to be done\n");
+			// evaluate subscript
+			symtabptr = tac_assignments_rhs(stree_Get_ArraySubscript_Subscript(t));
+			// get deref length
+			derefLength = SymTab_Insert(global_local_symbtbl,temp_create_str(),1);
+			newCode = newInstr_Array_Len(ArrayLen,derefLength,symtabptr,stree_Get_ArraySubscript_Array(t));
+			appendToInstructionList(newCode);
+			// get addr loc
+			addr = SymTab_Insert(global_local_symbtbl,temp_create_str(),1);
+			sym_Set_Type(addr,t_Array);
+			newCode = newInstr_Array_Addr(ArrayAddr,addr,derefLength,stree_Get_ArraySubscript_Array(t));
+			appendToInstructionList(newCode);
+			// set to new temp
+			//arrayRes = SymTab_Insert(global_local_symbtbl,temp_create_str(),1);
+			return addr;
+
 		default:
 			return symtabptr;
 	}
@@ -1172,6 +1187,19 @@ while (code != NULL) {
 					} else if (sym_Get_Type(code->src1) == t_Char) {
 						printf("\tlw $t1, -4($fp)\n");
 						printf("\tsb $t1, _%s\n",sym_Get_Name(code->dest));
+					} else if (sym_Get_Type(code->src1) == t_Array) {
+						if (sym_Get_Scope(code->src1) == 1) {
+							printf("\tlw $t1, _%s_%s\n",currFun,sym_Get_Name(code->src1));
+						} else {
+							printf("\tlw $t1, _%s\n",sym_Get_Name(code->src1));
+						}
+						printf("\tlw $t1, 0($t1)\n");
+						if (sym_Get_Scope(code->dest) == 1) {
+							printf("\tsw $t1, _%s_%s\n",currFun,sym_Get_Name(code->dest));
+						} else {
+							printf("\tsw $t1, _%s\n",sym_Get_Name(code->dest));
+						}
+
 					} else {
 						if (sym_Get_Scope(code->src1) == 1) {
 							printf("\tlw $t1, _%s_%s\n",currFun,sym_Get_Name(code->src1));
@@ -1283,7 +1311,7 @@ while (code != NULL) {
 					printf("\tsw $t3, _%s\n",sym_Get_Name(code->dest));
 				break;
 			case ArrayLen:
-							printf("array\n");
+				//			printf("array\n");
 				printf("\tlw $t0, _%s_%s\n",currFun,sym_Get_Name(code->src1));
 				printf("\tli $t4, %d\n",code->flag);
 				printf("\tmul $t1, $t0, $t4\n");
@@ -1419,6 +1447,10 @@ void print_local_variables(char * currFun, symtabnodelist ** local_symtbl) {
 				printf("_%s_%s: .space 4\n",currFun,sym_Get_Name(node));
 				break;
 			case t_Char:
+				printf(".align 2\n");
+				printf("_%s_%s: .space 4\n",currFun,sym_Get_Name(node));
+				break;
+			case t_Array:
 				printf(".align 2\n");
 				printf("_%s_%s: .space 4\n",currFun,sym_Get_Name(node));
 				break;
