@@ -31,6 +31,8 @@ enum threeAddrType {
 	GreaterThanEq,
 	NotEq,
 	Eq,
+	RhsCall,
+	Ret
 };
 
 typedef struct addrCode {
@@ -68,7 +70,10 @@ void conditionDistribute(tnode * t);
 void print_local_variables(char * currFun, symtabnodelist ** local_symtbl);
 void evaluateWhile(tnode * t);
 void evaluateFor(tnode * t);
+void evaluateReturn(tnode * t);
 void codeGen_Bool(tnode * boolExpr, enum SyntaxNodeType type,addrCode * trueDest, addrCode * falseDest);
+addrCode * newInstr_Return_Val(enum threeAddrType type, symtabnode * dest);
+addrCode * newInstr_Return(enum threeAddrType type,enum ValueType val,symtabnode * dest,symtabnode * src1);
 addrCode * newInstr_Cond_Dest(enum threeAddrType type, char * dest);
 addrCode * newInstr_Cond(enum threeAddrType type,enum threeAddrType condType, symtabnode * op1, symtabnode * op2, char * trueDest, char * falseDest);
 addrCode * newInstr_Param_Array(enum threeAddrType type, symtabnode * t,symtabnode * subscript);
@@ -238,6 +243,7 @@ void traverseFunctionBody(tnode * t,enum threeAddrType type) {
 			tac_assignments(t);
 			return;			
 		case Return:
+			evaluateReturn(t);
 			return;
 		case For:
 			evaluateFor(t);
@@ -271,10 +277,25 @@ void traverseFunctionBody(tnode * t,enum threeAddrType type) {
 
 
 
+void evaluateReturn(tnode * t) {
+	tnode * ret = stree_Get_Return(t);
+	if (ret != NULL) {
+		symtabnode * retSym = tac_assignments_rhs(ret);
+		addrCode * newCode = newInstr_Return_Val(Ret,retSym);
+		appendToInstructionList(newCode);
+	}
+} // evaluateReturn
 
 
 
 
+addrCode * newInstr_Return_Val(enum threeAddrType type, symtabnode * dest) {
+	struct addrCode * newCode = (addrCode*)malloc(sizeof(addrCode));
+	newCode->type = type;
+	newCode->dest = dest;
+	newCode->next = NULL;
+	return newCode;
+}
 
 
 
@@ -622,7 +643,9 @@ symtabnode * tac_assignments_rhs(tnode * t) {
 	symtabnode * symtabptr = NULL;
 	symtabnode * binop1;
 	symtabnode * binop2;
+	symtabnode * funCall;
 	addrCode * newCode;
+	enum ValueType valType;	
 	symtabnode * derefLength;
 	symtabnode * addr;
 	//symtabnode * arrayRes;
@@ -698,12 +721,36 @@ symtabnode * tac_assignments_rhs(tnode * t) {
 			// set to new temp
 			//arrayRes = SymTab_Insert(global_local_symbtbl,temp_create_str(),1);
 			return addr;
-
+		case FunCall:
+			printf("hit\n");
+			funCall = stree_Get_FunCall_Fun(t);
+			valType = sym_Get_ReturnType(funCall);
+			symtabptr = SymTab_Insert(global_local_symbtbl,temp_create_str(),1);
+			newCode = newInstr_Return(RhsCall,valType,symtabptr,funCall);
+			appendToInstructionList(newCode);
+			break;
 		default:
 			return symtabptr;
 	}
 	return symtabptr;
 } // tac_assignments_rhs
+
+
+
+
+addrCode * newInstr_Return(enum threeAddrType type,enum ValueType val,symtabnode * dest,symtabnode * src1) {
+	struct addrCode * newCode = (addrCode*)malloc(sizeof(addrCode));
+	newCode->type = type;
+	newCode->symType = val;
+	newCode->src1=src1;
+	newCode->dest = dest;
+	newCode->next = NULL;
+	return newCode;
+} // newInstr
+
+
+
+
 void tac_assignments_lhs(tnode * t,symtabnode * smbtbl) {
 	addrCode * newCode;
 	symtabnode * symtabptr;
@@ -778,7 +825,6 @@ addrCode * newInstr_Array_Len(enum threeAddrType type, symtabnode * dest, symtab
 		newCode->flag = 4; // size of indiv elem
 	newCode->next = NULL;
 	return newCode;
-
 } // newInstr
 
 
@@ -1199,7 +1245,11 @@ while (code != NULL) {
 	        			else
 	        				printf("\tsw $t1, _%s\n",sym_Get_Name(code->dest));
 					} else if (sym_Get_Type(code->src1) == t_Char) {
-						printf("\tlw $t1, -4($fp)\n");
+						if (sym_Get_Scope(code->src1) == 1) 
+							printf("\tlw $t1, _%s_%s\n",currFun,sym_Get_Name(code->src1));
+						else
+							printf("\tlw $t1, _%s\n",sym_Get_Name(code->src1));
+
 						printf("\tsb $t1, _%s\n",sym_Get_Name(code->dest));
 					} else if (sym_Get_Type(code->src1) == t_Array) {
 						if (sym_Get_Scope(code->src1) == 1) {
@@ -1374,6 +1424,24 @@ while (code != NULL) {
 				break;
 			case JumpDest:
 				printf("\tj _%s\n",code->endDest);
+				break;
+			case RhsCall:
+				printf("ok\n");
+					printf("\tjal _%s\n",sym_Get_Name(code->src1));
+					printf("\taddi $t0, $v0, 0\n");
+
+					if (sym_Get_Scope(code->dest) == 1)
+						printf("\tsw $t0, _%s_%s\n",currFun,sym_Get_Name(code->dest));				
+					else
+						printf("\tsw $t0, _%s\n",sym_Get_Name(code->dest));				
+		
+				break;
+			case Ret:
+				if (sym_Get_Scope(code->dest) == 1)
+					printf("\tlw $t0, _%s_%s\n",currFun,sym_Get_Name(code->dest));
+				else
+					printf("\tlw $t0, _%s\n",sym_Get_Name(code->dest));
+				printf("\taddi $v0, $t0, 0\n");
 				break;
 			default:
 			return;
